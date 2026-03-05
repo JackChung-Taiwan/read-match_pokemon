@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Level 2: Read & Match (Balanced Layout)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; touch-action: none; }
+        .btn-active { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.5); transform: translateY(-2px); }
+        .card { transition: all 0.2s; cursor: pointer; }
+        
+        /* 拖曳句子卡片 */
+        .draggable-card { touch-action: none; z-index: 10; }
+        .draggable-card:hover { border-color: #93c5fd; box-shadow: 0 8px 15px rgba(0,0,0,0.1); }
+        
+        /* 回答框 (Drop Zone) */
+        .drop-zone { transition: all 0.3s ease; }
+        .drop-zone.drag-over {
+            background-color: #dbeafe !important;
+            border-color: #3b82f6 !important;
+            transform: scale(1.05);
+        }
+        .drop-zone.filled {
+            background-color: #f0fdf4 !important;
+            border-color: #4ade80 !important;
+            border-style: solid !important;
+        }
+
+        @keyframes pulse-green {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            50% { box-shadow: 0 0 0 15px rgba(34, 197, 94, 0); }
+        }
+        .hint-pulse { animation: pulse-green 1.5s infinite; border-color: #22c55e !important; }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            50% { transform: translateX(10px); }
+            75% { transform: translateX(-10px); }
+        }
+        .shake { animation: shake 0.4s ease-in-out; }
+
+        @keyframes floatScore {
+            0% { opacity: 0; transform: translateY(0px) scale(0.5); }
+            20% { opacity: 1; transform: translateY(-20px) scale(1.2); }
+            80% { opacity: 1; transform: translateY(-45px) scale(1); }
+            100% { opacity: 0; transform: translateY(-70px) scale(0.8); }
+        }
+        .float-score {
+            position: absolute; top: 0%; left: 0; width: 100%; display: flex;
+            justify-content: center; align-items: center; font-weight: 900; z-index: 100;
+            pointer-events: none; animation: floatScore 1.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            text-shadow: 0px 4px 10px rgba(0,0,0,0.4), 0px 0px 6px white;
+        }
+    </style>
+</head>
+<body class="bg-blue-50 min-h-screen font-sans flex flex-col items-center py-4 overflow-hidden">
+
+    <div class="w-[98%] max-w-6xl px-2 text-center flex flex-col h-full">
+        <h1 class="text-3xl md:text-5xl font-bold text-blue-800 mb-2">Read & Match!</h1>
+        <p class="text-gray-600 mb-3 text-base md:text-2xl font-medium">Drag the sentence UP to the correct Pokémon.</p>
+        
+        <div class="flex justify-center items-center gap-3 md:gap-6 mb-4">
+            <button id="btnSimple" onclick="setMode('simple')" class="bg-green-500 text-white px-4 py-2 rounded-xl font-bold text-sm md:text-2xl btn-active shadow-md">Simple</button>
+            <button id="btnAdvanced" onclick="setMode('advanced')" class="bg-purple-500 text-white px-4 py-2 rounded-xl font-bold text-sm md:text-2xl shadow-md">Advanced</button>
+            <div class="bg-white px-4 py-2 rounded-xl border-4 border-blue-200 font-bold text-sm md:text-2xl text-blue-800">Score: <span id="currentScore">0</span></div>
+            <button onclick="startRound()" class="bg-blue-500 text-white px-4 py-2 rounded-xl font-bold text-sm md:text-2xl shadow-md active:scale-95">New 🔄</button>
+        </div>
+
+        <div id="message" class="text-2xl md:text-4xl font-bold text-blue-500 h-10 mb-2 drop-shadow-sm">Let's Go!</div>
+
+        <div class="flex flex-col gap-4 md:gap-8 flex-1 w-full">
+            
+            <div id="pokemonRow" class="grid grid-cols-3 gap-3 md:gap-8 w-full flex-1"></div>
+            
+            <hr class="border-t-4 border-blue-100">
+
+            <div id="textRow" class="grid grid-cols-3 gap-3 md:gap-8 w-full flex-1"></div>
+            
+        </div>
+    </div>
+
+    <script>
+        const simpleDB = [
+            { i: 25, z: '皮卡丘', e: 'Pikachu', t: 'It is yellow and has a long tail.' },
+            { i: 7, z: '傑尼龜', e: 'Squirtle', t: 'It is blue and has a hard shell.' },
+            { i: 1, z: '妙蛙種子', e: 'Bulbasaur', t: 'It is green and has a bulb on its back.' },
+            { i: 4, z: '小火龍', e: 'Charmander', t: 'It is orange and has fire on its tail.' },
+            { i: 39, z: '胖丁', e: 'Jigglypuff', t: 'It is pink and very round.' },
+            { i: 52, z: '喵喵', e: 'Meowth', t: 'It is white and has sharp claws.' },
+            { i: 133, z: '伊布', e: 'Eevee', t: 'It is brown and has long ears.' },
+            { i: 143, z: '卡比獸', e: 'Snorlax', t: 'It is very big and heavy.' },
+            { i: 10, z: '綠毛蟲', e: 'Caterpie', t: 'It is a green bug with a red horn.' },
+            { i: 16, z: '波波', e: 'Pidgey', t: 'It is a small bird with brown wings.' }
+        ];
+
+        const advancedDB = [
+            { i: 6, z: '噴火龍', e: 'Charizard', t: 'It is a big orange dragon with wide wings.' },
+            { i: 9, z: '水箭龜', e: 'Blastoise', t: 'It is a large blue turtle with two cannons.' },
+            { i: 54, z: '可達鴨', e: 'Psyduck', t: 'It is a yellow duck holding its head.' },
+            { i: 68, z: '怪力', e: 'Machamp', t: 'It is strong and has four arms.' },
+            { i: 74, z: '小拳石', e: 'Geodude', t: 'It looks like a gray rock with two hands.' },
+            { i: 92, z: '鬼斯', e: 'Gastly', t: 'It is a black ball of ghost gas.' },
+            { i: 95, z: '大岩蛇', e: 'Onix', t: 'It is a very long snake made of gray rocks.' },
+            { i: 100, z: '霹靂電球', e: 'Voltorb', t: 'It looks like a red and white ball.' },
+            { i: 109, z: '瓦斯彈', e: 'Koffing', t: 'It is a purple ball floating in the air.' },
+            { i: 114, z: '蔓藤怪', e: 'Tangela', t: 'It is covered in blue vines and has big eyes.' },
+            { i: 120, z: '海星星', e: 'Staryu', t: 'It is brown and looks like a star.' },
+            { i: 129, z: '鯉魚王', e: 'Magikarp', t: 'It is a weak red fish.' },
+            { i: 131, z: '拉普拉斯', e: 'Lapras', t: 'It is a blue dinosaur with a gray shell.' },
+            { i: 132, z: '百變怪', e: 'Ditto', t: 'It is a small pink slime.' },
+            { i: 150, z: '超夢', e: 'Mewtwo', t: 'It is a tall, purple and white creature.' }
+        ];
+
+        let currentMode = 'simple';
+        let currentRoundPokemons = [];
+        let currentScore = 0;
+        let matchCount = 0;
+        let isDragging = false;
+        let dragEl = null;
+        let startX, startY, initialLeft, initialTop, placeholder;
+
+        function speakText(text) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 0.8;
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('btnSimple').classList.toggle('btn-active', mode === 'simple');
+            document.getElementById('btnAdvanced').classList.toggle('btn-active', mode === 'advanced');
+            startRound();
+        }
+
+        function startRound() {
+            document.getElementById('message').innerText = "Drag UP to Match!";
+            matchCount = 0;
+            const db = currentMode === 'simple' ? simpleDB : advancedDB;
+            currentRoundPokemons = [...db].sort(() => Math.random() - 0.5).slice(0, 3);
+            renderBoard();
+        }
+
+        function renderBoard() {
+            const pokeRow = document.getElementById('pokemonRow');
+            const textRow = document.getElementById('textRow');
+            pokeRow.innerHTML = '';
+            textRow.innerHTML = '';
+
+            const shuffledTexts = [...currentRoundPokemons].sort(() => Math.random() - 0.5);
+
+            currentRoundPokemons.forEach(p => {
+                const pCard = document.createElement('div');
+                // 🌟 核心調整：高度均分，與下方卡片對齊
+                pCard.className = 'poke-card bg-white p-3 md:p-6 rounded-2xl md:rounded-[2.5rem] border-4 md:border-8 border-gray-100 flex flex-col items-center justify-between w-full h-full relative shadow-sm';
+                pCard.dataset.id = p.i;
+                pCard.innerHTML = `
+                    <div class="flex flex-col items-center">
+                        <img id="img-${p.i}" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${p.i}.png" class="h-16 md:h-36 object-contain pointer-events-none mb-1">
+                        <div id="info-${p.i}" class="hidden w-full text-center"></div>
+                    </div>
+                    <div id="drop-${p.i}" class="drop-zone w-full border-4 border-dashed border-gray-300 bg-gray-50 rounded-2xl p-2 md:p-5 text-sm md:text-3xl font-black text-gray-400 flex items-center justify-center text-center leading-tight min-h-[70px] md:min-h-[140px]">Drop Box</div>
+                `;
+                pCard.onclick = () => { if(pCard.dataset.matched === 'true') speakText(p.e); };
+                pokeRow.appendChild(pCard);
+            });
+
+            shuffledTexts.forEach(p => {
+                const tCard = document.createElement('div');
+                // 🌟 核心調整：卡片高度設為 h-full 並搭配 grid 的均分空間
+                tCard.className = 'draggable-card bg-blue-50 p-4 md:p-8 rounded-2xl border-4 md:border-8 border-blue-200 flex flex-col justify-center items-center w-full h-full relative shadow-md';
+                tCard.dataset.id = p.i;
+                tCard.dataset.text = p.t;
+                tCard.innerHTML = `
+                    <div class="text-sm sm:text-lg md:text-3xl font-black text-blue-900 text-center pointer-events-none leading-snug">${p.t}</div>
+                    <div class="absolute bottom-2 right-3 text-xl md:text-5xl opacity-30 pointer-events-none">🔊</div>
+                `;
+                tCard.addEventListener('pointerdown', handlePointerDown);
+                textRow.appendChild(tCard);
+            });
+        }
+
+        function handlePointerDown(e) {
+            const card = e.currentTarget;
+            speakText(card.dataset.text);
+            if (card.dataset.matched === 'true') return;
+
+            isDragging = true; dragEl = card;
+            const rect = card.getBoundingClientRect();
+            initialLeft = rect.left; initialTop = rect.top;
+            startX = e.clientX; startY = e.clientY;
+
+            placeholder = document.createElement('div');
+            placeholder.className = card.className;
+            placeholder.style.opacity = '0';
+            card.parentNode.insertBefore(placeholder, card);
+
+            Object.assign(card.style, { position: 'fixed', left: initialLeft+'px', top: initialTop+'px', width: rect.width+'px', height: rect.height+'px', zIndex: 1000, transition: 'none', boxShadow: '0 15px 30px rgba(0,0,0,0.3)', transform: 'scale(1.1) rotate(1deg)' });
+            card.setPointerCapture(e.pointerId);
+            card.addEventListener('pointermove', handlePointerMove);
+            card.addEventListener('pointerup', handlePointerUp);
+        }
+
+        function handlePointerMove(e) {
+            if (!isDragging || !dragEl) return;
+            dragEl.style.left = initialLeft + (e.clientX - startX) + 'px';
+            dragEl.style.top = initialTop + (e.clientY - startY) + 'px';
+
+            dragEl.style.visibility = 'hidden';
+            const target = document.elementFromPoint(e.clientX, e.clientY);
+            dragEl.style.visibility = 'visible';
+
+            document.querySelectorAll('.drop-zone').forEach(z => z.classList.remove('drag-over'));
+            const pokeCard = target ? target.closest('.poke-card') : null;
+            if (pokeCard && pokeCard.dataset.matched !== 'true') pokeCard.querySelector('.drop-zone').classList.add('drag-over');
+        }
+
+        function handlePointerUp(e) {
+            if (!isDragging || !dragEl) return;
+            isDragging = false;
+            dragEl.style.visibility = 'hidden';
+            const target = document.elementFromPoint(e.clientX, e.clientY);
+            dragEl.style.visibility = 'visible';
+
+            const pokeCard = target ? target.closest('.poke-card') : null;
+            if (pokeCard && pokeCard.dataset.matched !== 'true' && pokeCard.dataset.id == dragEl.dataset.id) {
+                matchSuccess(pokeCard, dragEl);
+            } else if (pokeCard) {
+                matchFail(pokeCard, dragEl);
+            } else {
+                snapBack(dragEl);
+            }
+            dragEl.releasePointerCapture(e.pointerId);
+        }
+
+        function snapBack(card) {
+            const rect = placeholder.getBoundingClientRect();
+            card.style.transition = 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+            card.style.left = rect.left + 'px'; card.style.top = rect.top + 'px';
+            card.style.transform = 'scale(1) rotate(0deg)';
+            setTimeout(() => {
+                if (placeholder && placeholder.parentNode) {
+                    placeholder.parentNode.insertBefore(card, placeholder);
+                    placeholder.parentNode.removeChild(placeholder);
+                }
+                Object.assign(card.style, { position: '', left: '', top: '', width: '', height: '', zIndex: '', transition: '', boxShadow: '' });
+            }, 300);
+        }
+
+        function matchSuccess(pokeCard, textCard) {
+            const dropZone = pokeCard.querySelector('.drop-zone');
+            speakText("Correct!");
+            snapBack(textCard);
+            pokeCard.dataset.matched = 'true'; textCard.dataset.matched = 'true';
+            setTimeout(() => {
+                textCard.style.visibility = 'hidden';
+                dropZone.classList.add('filled', 'text-blue-900');
+                dropZone.innerHTML = `<span class="text-sm md:text-3xl font-black leading-tight">${textCard.dataset.text}</span>`;
+                showIntro(pokeCard, pokeCard.dataset.id);
+                matchCount++;
+                if (matchCount === 3) document.getElementById('message').innerText = "Excellent! 🎉";
+            }, 310);
+        }
+
+        function showFloatingScore(element, isCorrect) {
+            const animDiv = document.createElement('div');
+            animDiv.className = `float-score ${isCorrect ? 'text-green-500' : 'text-red-500'}`;
+            animDiv.innerHTML = `<span class="text-2xl md:text-6xl">${isCorrect ? '✅ +10' : '❌ -2'}</span>`;
+            element.appendChild(animDiv);
+            setTimeout(() => { if(animDiv.parentNode) element.removeChild(animDiv); }, 1500);
+        }
+
+        function matchFail(pokeCard, textCard) {
+            speakText("Try again.");
+            snapBack(textCard);
+            pokeCard.classList.add('shake');
+            showFloatingScore(pokeCard, false);
+            currentScore = Math.max(0, currentScore - 2);
+            document.getElementById('currentScore').innerText = currentScore;
+            setTimeout(() => pokeCard.classList.remove('shake'), 400);
+        }
+
+        function showIntro(card, id) {
+            const p = (currentMode === 'simple' ? simpleDB : advancedDB).find(item => item.i == id);
+            const img = card.querySelector('img');
+            img.style.height = '60px';
+            const info = card.querySelector(`#info-${id}`);
+            info.classList.remove('hidden');
+            info.innerHTML = `<h3 class="text-base md:text-4xl font-black">${p.e}</h3><p class="text-xs md:text-2xl text-green-600 font-bold">${p.z}</p>`;
+            showFloatingScore(card, true);
+            currentScore += 10;
+            document.getElementById('currentScore').innerText = currentScore;
+        }
+
+        setMode('simple');
+    </script>
+</body>
+</html>
