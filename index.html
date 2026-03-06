@@ -53,6 +53,20 @@
             pointer-events: none; animation: floatScore 1.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
             text-shadow: 0px 4px 10px rgba(0,0,0,0.4), 0px 0px 6px white;
         }
+
+        /* 寶可夢名字浮動動畫 */
+        @keyframes floatName {
+            0% { opacity: 0; transform: translateY(10px) scale(0.8); }
+            20% { opacity: 1; transform: translateY(-15px) scale(1.2); }
+            80% { opacity: 1; transform: translateY(-30px) scale(1); }
+            100% { opacity: 0; transform: translateY(-50px) scale(0.8); }
+        }
+        .float-name {
+            position: absolute; top: 20%; left: 0; width: 100%; display: flex;
+            justify-content: center; align-items: center; font-weight: 900; z-index: 110;
+            pointer-events: none; animation: floatName 1.5s ease-out forwards;
+            text-shadow: 0px 3px 8px rgba(0,0,0,0.6), 0px 0px 8px white, 0px 0px 8px white;
+        }
     </style>
 </head>
 <body class="bg-blue-50 min-h-screen font-sans flex flex-col items-center py-4 overflow-hidden">
@@ -120,35 +134,37 @@
         let isDragging = false;
         let dragEl = null;
         let startX, startY, initialLeft, initialTop, placeholder;
+        let currentSpokenText = "";
 
-function speakText(text) {
-    // 如果系統正在發音，且正在唸的句子跟點擊的句子一樣，就直接返回，不重新發音
-    if (window.speechSynthesis.speaking && currentSpokenText === text) {
-        return;
-    }
-    
-    // 如果是點擊不同的句子，先取消目前的發音
-    window.speechSynthesis.cancel();
-    
-    // 更新目前正在唸的句子
-    currentSpokenText = text;
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    utterance.rate = 0.8;
-    
-    // 當這句話唸完的時候，清空紀錄，這樣下次點擊同一句時就可以再次發音
-    utterance.onend = () => {
-        currentSpokenText = "";
-    };
-    
-    // 萬一發音被中斷（例如點了另一句），也清空紀錄
-    utterance.oncancel = () => {
-        currentSpokenText = "";
-    };
+        function speakText(text) {
+            if (window.speechSynthesis.speaking && currentSpokenText === text) {
+                return;
+            }
+            
+            window.speechSynthesis.cancel();
+            currentSpokenText = text;
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 0.8;
+            
+            utterance.onend = () => { currentSpokenText = ""; };
+            utterance.oncancel = () => { currentSpokenText = ""; };
 
-    window.speechSynthesis.speak(utterance);
-}
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // 顯示浮動單字文字
+        function showFloatingName(element, text) {
+            const animDiv = document.createElement('div');
+            // 【修改這裡】將顏色改為 text-green-500，讓文字變成綠色
+            animDiv.className = 'float-name text-green-500 text-3xl md:text-5xl'; 
+            animDiv.innerText = text;
+            element.appendChild(animDiv);
+            
+            // 1.5 秒後動畫結束，移除 DOM 元素
+            setTimeout(() => { if(animDiv.parentNode) element.removeChild(animDiv); }, 1500);
+        }
 
         function setMode(mode) {
             currentMode = mode;
@@ -179,20 +195,22 @@ function speakText(text) {
                 pCard.dataset.id = p.i;
                 pCard.dataset.matched = 'false';
 
-                // 建立上半部：寶可夢圖片與資訊區塊
                 const topArea = document.createElement('div');
-                topArea.className = 'flex flex-col items-center w-full cursor-pointer';
+                topArea.className = 'flex flex-col items-center w-full cursor-pointer relative';
                 topArea.innerHTML = `
                     <img id="img-${p.i}" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${p.i}.png" class="h-16 md:h-36 object-contain pointer-events-none mb-1">
                     <div id="info-${p.i}" class="hidden w-full text-center"></div>
                 `;
-                // 點擊上半部唸寶可夢名字 (只有配對成功後才會唸)
+                
+                // 點擊上半部唸名字並產生浮動文字
                 topArea.onclick = (e) => {
-                    e.stopPropagation(); // 阻止事件往下傳遞
-                    if(pCard.dataset.matched === 'true') speakText(p.e);
+                    e.stopPropagation();
+                    if(pCard.dataset.matched === 'true') {
+                        speakText(p.e);
+                        showFloatingName(pCard, p.e); // 觸發浮動特效
+                    }
                 };
 
-                // 建立下半部：拖曳放置區
                 const dropZone = document.createElement('div');
                 dropZone.id = `drop-${p.i}`;
                 dropZone.className = 'drop-zone w-full border-4 border-dashed border-gray-300 bg-gray-50 rounded-2xl p-2 md:p-5 text-sm md:text-3xl font-black text-gray-400 flex items-center justify-center text-center leading-tight min-h-[70px] md:min-h-[140px] cursor-pointer';
@@ -296,7 +314,6 @@ function speakText(text) {
                 dropZone.classList.add('filled', 'text-blue-900');
                 dropZone.innerHTML = `<span class="text-sm md:text-3xl font-black leading-tight">${textCard.dataset.text}</span>`;
                 
-                // 新增：配對成功後，點擊下方答題區會唸出句子
                 dropZone.onclick = (e) => {
                     e.stopPropagation();
                     speakText(textCard.dataset.text);
