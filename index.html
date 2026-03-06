@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Read & Match </title>
+    <title>Level 2: Read & Match (Balanced Layout)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { -webkit-tap-highlight-color: transparent; touch-action: none; }
@@ -121,13 +121,34 @@
         let dragEl = null;
         let startX, startY, initialLeft, initialTop, placeholder;
 
-        function speakText(text) {
-            window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'en-US';
-            utterance.rate = 1;
-            window.speechSynthesis.speak(utterance);
-        }
+function speakText(text) {
+    // 如果系統正在發音，且正在唸的句子跟點擊的句子一樣，就直接返回，不重新發音
+    if (window.speechSynthesis.speaking && currentSpokenText === text) {
+        return;
+    }
+    
+    // 如果是點擊不同的句子，先取消目前的發音
+    window.speechSynthesis.cancel();
+    
+    // 更新目前正在唸的句子
+    currentSpokenText = text;
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.8;
+    
+    // 當這句話唸完的時候，清空紀錄，這樣下次點擊同一句時就可以再次發音
+    utterance.onend = () => {
+        currentSpokenText = "";
+    };
+    
+    // 萬一發音被中斷（例如點了另一句），也清空紀錄
+    utterance.oncancel = () => {
+        currentSpokenText = "";
+    };
+
+    window.speechSynthesis.speak(utterance);
+}
 
         function setMode(mode) {
             currentMode = mode;
@@ -154,23 +175,36 @@
 
             currentRoundPokemons.forEach(p => {
                 const pCard = document.createElement('div');
-                // 🌟 核心調整：高度均分，與下方卡片對齊
                 pCard.className = 'poke-card bg-white p-3 md:p-6 rounded-2xl md:rounded-[2.5rem] border-4 md:border-8 border-gray-100 flex flex-col items-center justify-between w-full h-full relative shadow-sm';
                 pCard.dataset.id = p.i;
-                pCard.innerHTML = `
-                    <div class="flex flex-col items-center">
-                        <img id="img-${p.i}" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${p.i}.png" class="h-16 md:h-36 object-contain pointer-events-none mb-1">
-                        <div id="info-${p.i}" class="hidden w-full text-center"></div>
-                    </div>
-                    <div id="drop-${p.i}" class="drop-zone w-full border-4 border-dashed border-gray-300 bg-gray-50 rounded-2xl p-2 md:p-5 text-sm md:text-3xl font-black text-gray-400 flex items-center justify-center text-center leading-tight min-h-[70px] md:min-h-[140px]">Drop Box</div>
+                pCard.dataset.matched = 'false';
+
+                // 建立上半部：寶可夢圖片與資訊區塊
+                const topArea = document.createElement('div');
+                topArea.className = 'flex flex-col items-center w-full cursor-pointer';
+                topArea.innerHTML = `
+                    <img id="img-${p.i}" src="https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${p.i}.png" class="h-16 md:h-36 object-contain pointer-events-none mb-1">
+                    <div id="info-${p.i}" class="hidden w-full text-center"></div>
                 `;
-                pCard.onclick = () => { if(pCard.dataset.matched === 'true') speakText(p.e); };
+                // 點擊上半部唸寶可夢名字 (只有配對成功後才會唸)
+                topArea.onclick = (e) => {
+                    e.stopPropagation(); // 阻止事件往下傳遞
+                    if(pCard.dataset.matched === 'true') speakText(p.e);
+                };
+
+                // 建立下半部：拖曳放置區
+                const dropZone = document.createElement('div');
+                dropZone.id = `drop-${p.i}`;
+                dropZone.className = 'drop-zone w-full border-4 border-dashed border-gray-300 bg-gray-50 rounded-2xl p-2 md:p-5 text-sm md:text-3xl font-black text-gray-400 flex items-center justify-center text-center leading-tight min-h-[70px] md:min-h-[140px] cursor-pointer';
+                dropZone.innerHTML = 'Drop Box';
+
+                pCard.appendChild(topArea);
+                pCard.appendChild(dropZone);
                 pokeRow.appendChild(pCard);
             });
 
             shuffledTexts.forEach(p => {
                 const tCard = document.createElement('div');
-                // 🌟 核心調整：卡片高度設為 h-full 並搭配 grid 的均分空間
                 tCard.className = 'draggable-card bg-blue-50 p-4 md:p-8 rounded-2xl border-4 md:border-8 border-blue-200 flex flex-col justify-center items-center w-full h-full relative shadow-md';
                 tCard.dataset.id = p.i;
                 tCard.dataset.text = p.t;
@@ -250,15 +284,24 @@
             }, 300);
         }
 
-        function matchSuccess(pokeCard, textCard) {
+       function matchSuccess(pokeCard, textCard) {
             const dropZone = pokeCard.querySelector('.drop-zone');
             speakText("Correct!");
             snapBack(textCard);
-            pokeCard.dataset.matched = 'true'; textCard.dataset.matched = 'true';
+            pokeCard.dataset.matched = 'true'; 
+            textCard.dataset.matched = 'true';
+            
             setTimeout(() => {
                 textCard.style.visibility = 'hidden';
                 dropZone.classList.add('filled', 'text-blue-900');
                 dropZone.innerHTML = `<span class="text-sm md:text-3xl font-black leading-tight">${textCard.dataset.text}</span>`;
+                
+                // 新增：配對成功後，點擊下方答題區會唸出句子
+                dropZone.onclick = (e) => {
+                    e.stopPropagation();
+                    speakText(textCard.dataset.text);
+                };
+
                 showIntro(pokeCard, pokeCard.dataset.id);
                 matchCount++;
                 if (matchCount === 3) document.getElementById('message').innerText = "Excellent! 🎉";
@@ -299,6 +342,3 @@
     </script>
 </body>
 </html>
-
-
-
